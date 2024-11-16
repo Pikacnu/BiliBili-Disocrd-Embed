@@ -1,0 +1,14 @@
+{
+  "name": "testdiscordembed",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "yt-dlp-wrap": "^2.3.12"
+  }
+}

@@ -2,13 +2,62 @@ import { readFile } from 'fs/promises';
 import { readFileSync, statSync, createReadStream } from 'fs';
 import YTDlpWrap from 'yt-dlp-wrap';
 import { mkdir, exists } from 'fs/promises';
+import WriteableStream from 'stream';
 
 if (!(await exists('./download'))) {
 	await mkdir('./download');
 }
 
+enum VideoType {
+	Video = '/video',
+	Bangumi = '/bangumi/play',
+}
+
+async function downloadVideo(id: string, type: VideoType = VideoType.Video) {
+	console.log('Downloading', id);
+	console.log('Type', type);
+	if (
+		!(await exists(`./download/${id}`)) ||
+		!(await exists(`./download/${id}/video.mp4`))
+	) {
+		if (!(await exists(`./download/${id}`))) await mkdir(`./download/${id}`);
+
+		const ytdlp = new YTDlpWrap();
+		await ytdlp.execPromise([
+			'--write-thumbnail',
+			'--write-info-json',
+			'-o',
+			`${__dirname}/download/${id}/video.%(ext)s`,
+			`https://www.bilibili.com${type}/${id}`,
+		]);
+	}
+
+	const video_info = JSON.parse(
+		(await readFile(`./download/${id}/video.info.json`)).toString(),
+	);
+	const title = video_info.title;
+	const description = video_info.description;
+	return new Response(
+		(await readFile('./embed.html'))
+			.toString()
+			.replaceAll('@@video_url@@', `/video_data/${id}`)
+			.replaceAll('@@thumbnail_url@@', `/thumbnail/${id}`)
+			.replaceAll('@@video_player@@', `/player/${id}`)
+			.replaceAll('@@title@@', title)
+			.replaceAll('@@description@@', description)
+			.replaceAll('@@bilibili_link@@', `https://www.bilibili.com${type}/${id}`),
+		{
+			status: 200,
+			headers: {
+				'Content-Type': 'text/html',
+				'Cache-Control': 'no-cache,max-age=0',
+			},
+		},
+	);
+}
+
 Bun.serve({
-	port: 8000,
+	port: 5173,
 	/*
 	hostname: '0.0.0.0',
 	key: readFileSync('./key.pem'),
@@ -33,45 +82,11 @@ Bun.serve({
 		}
 		if (url.pathname.startsWith('/video')) {
 			const id = url.pathname.split('/')[2];
-			if (!(await exists(`./download/${id}`))) {
-				await mkdir(`./download/${id}`);
-				const ytdlp = new YTDlpWrap();
-				await ytdlp
-					.execPromise(
-						[
-							'--write-thumbnail',
-							'--write-info-json',
-							'-o',
-							`${__dirname}/download/${id}/video.%(ext)s`,
-							`https://www.bilibili.com/video/${id}`,
-						],
-						{},
-					)
-					.then((data) => {
-						console.log(data);
-					});
-			}
-			const video_info = JSON.parse(
-				(await readFile(`./download/${id}/video.info.json`)).toString(),
-			);
-			const title = video_info.title;
-			const description = video_info.description;
-			return new Response(
-				(await readFile('./embed.html'))
-					.toString()
-					.replaceAll('@@video_url@@', `/video_data/${id}`)
-					.replaceAll('@@thumbnail_url@@', `/thumbnail/${id}`)
-					.replaceAll('@@video_player@@', `/player/${id}`)
-					.replaceAll('@@title@@', title)
-					.replaceAll('@@description@@', description),
-				{
-					status: 200,
-					headers: {
-						'Content-Type': 'text/html',
-						'Cache-Control': 'no-cache,max-age=0',
-					},
-				},
-			);
+			return await downloadVideo(id);
+		}
+		if (url.pathname.startsWith('/bangumi')) {
+			const id = url.pathname.split('/')[3];
+			return await downloadVideo(id, VideoType.Bangumi);
 		}
 
 		if (url.pathname.startsWith('/thumbnail')) {

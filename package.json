@@ -9,6 +9,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
+    "@types/stream-write": "^2.0.3",
     "yt-dlp-wrap": "^2.3.12"
   }
 }

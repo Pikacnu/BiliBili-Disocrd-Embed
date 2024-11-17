@@ -1,8 +1,6 @@
 import { readFile } from 'fs/promises';
-import { readFileSync, statSync, createReadStream } from 'fs';
 import YTDlpWrap from 'yt-dlp-wrap';
 import { mkdir, exists } from 'fs/promises';
-import WriteableStream from 'stream';
 
 if (!(await exists('./download'))) {
 	await mkdir('./download');
@@ -35,17 +33,17 @@ async function downloadVideo(id: string, type: VideoType = VideoType.Video) {
 	const video_info = JSON.parse(
 		(await readFile(`./download/${id}/video.info.json`)).toString(),
 	);
-	const title = video_info.title;
-	const description = video_info.description;
 	return new Response(
 		(await readFile('./embed.html'))
 			.toString()
 			.replaceAll('@@video_url@@', `/video_data/${id}`)
 			.replaceAll('@@thumbnail_url@@', `/thumbnail/${id}`)
 			.replaceAll('@@video_player@@', `/player/${id}`)
-			.replaceAll('@@title@@', title)
-			.replaceAll('@@description@@', description)
-			.replaceAll('@@bilibili_link@@', `https://www.bilibili.com${type}/${id}`),
+			.replaceAll('@@title@@', video_info.title)
+			.replaceAll('@@description@@', video_info.description)
+			.replaceAll('@@bilibili_link@@', `https://www.bilibili.com${type}/${id}`)
+			.replaceAll('@@author@@', video_info.uploader)
+			.replaceAll('@@keywords@@', video_info.tags.join(', ')),
 		{
 			status: 200,
 			headers: {

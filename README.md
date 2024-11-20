@@ -17,7 +17,7 @@ bun run index.ts
 Change BiliBili Video Link from
 www.bilibili.com
 to
-www.pikacnu.com (myowndomain)
+www.vxbilibili.com (my friends domain)
 
 # Info
 In usecase the longer video have less possible generate embed by one time

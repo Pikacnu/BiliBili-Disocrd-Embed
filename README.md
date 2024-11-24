@@ -25,5 +25,6 @@ If it doesn't work just change parms(This website don't take any parms) let disc
 
 # Important
 `index.ts` can be run in most envrionment
+
 `linux.ts` only can be run on linux(I test it on ubuntu server) and not statble but support stream
-(Re write what YT-dlp do by myself) (Reason is it use two pipe input)
+(`linux.ts` shouldn't be used because it still have many bugs and I don't know how to fix)

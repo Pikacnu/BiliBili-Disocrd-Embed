@@ -4,6 +4,7 @@ import { spawn } from 'child_process';
 import { Readable, Writable } from 'stream';
 import { writeFile } from 'fs/promises';
 import Bun from 'bun';
+import { createWriteStream } from 'fs';
 
 if (!(await exists('./download'))) {
 	await mkdir('./download');
@@ -38,11 +39,11 @@ async function streamMergedVideo(
 	// 合併流
 	const ffmpeg = spawn(
 		`ffmpeg`,
-		`-i pipe:0 -thread_queue_size 1024 -i pipe:3 -filter_complex "[0:v] [1:v] concat=n=2:v=1:a=1 [v] [a]" -map "[v]" -map "[a]" -shortest -thread_queue_size 1024 -c:v copy -c:a aac -movflags frag_keyframe+empty_moov -f mp4 pipe:1`.split(
+		`-i pipe:0 -thread_queue_size 1024 -i pipe:3 -thread_queue_size 1024 -c:v copy -c:a aac -movflags frag_keyframe+empty_moov -f mp4 pipe:1`.split(
 			' ',
 		),
 		{
-			stdio: ['pipe', 'pipe', 'ignore', 'pipe'], // 配置 stdio 管道
+			stdio: ['pipe', 'pipe', 'inherit', 'pipe'], // 配置 stdio 管道
 			shell: true,
 		},
 	);
@@ -59,11 +60,8 @@ async function streamMergedVideo(
 	});
 	// 將影片和音訊流寫入 ffmpeg
 
-	writeFile(
-		`./download/${id}/video.mp4`,
-		ffmpeg.stdio[1] as Readable,
-		'binary',
-	);
+	const res = new Response(ffmpeg.stdio[1] as unknown as ReadableStream);
+	Bun.write(`./download/${id}/video.mp4`, res);
 
 	// 返回合併流
 	return new Response(
@@ -78,6 +76,7 @@ async function streamMergedVideo(
 			},
 		}),
 		{
+			status: 200,
 			headers: {
 				'Content-Type': 'video/mp4',
 				'Cache-Control': 'no-cache,max-age=0',
@@ -129,18 +128,18 @@ async function downloadVideo(id: string, type: VideoType = VideoType.Video) {
 			.replaceAll('@@author@@', video_info.uploader)
 			.replaceAll('@@keywords@@', video_info.tags.join(', ')),
 		{
-			status: 200,
+			status: 206,
 			headers: {
 				'Content-Type': 'text/html',
 				'Cache-Control': 'no-cache,max-age=0',
+				'Content-Range': 'bytes 0-',
 			},
 		},
 	);
 }
 
 Bun.serve({
-	port: 5173,
-	idleTimeout: 1000 * 60 * 60 * 24,
+	port: 6000,
 	/*
 	hostname: '0.0.0.0',
 	key: readFileSync('./key.pem'),
@@ -151,7 +150,10 @@ Bun.serve({
 		console.log(url.pathname);
 
 		if (url.pathname.startsWith('/video_data')) {
-			const id = url.pathname.split('/').pop();
+			const id = url.pathname.split('/')[2];
+			if (!(await exists(`./download/${id}`))) {
+				mkdir(`./download/${id}`);
+			}
 			const file = `./download/${id}/video.mp4`;
 			if (!id || /\/\S{12}\//.test(id)) {
 				return new Response('404 Not Found PABAO', { status: 404 });
@@ -163,8 +165,6 @@ Bun.serve({
 					headers: {
 						'Content-Type': 'video/mp4',
 						'Cache-Control': 'no-cache,max-age=0',
-						'Content-Disposition': `attachment; filename="${id}.mp4"`,
-						'Content-Ranges': `bytes */${Bun.file(file).size}`,
 					},
 				});
 			}

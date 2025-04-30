@@ -20,7 +20,6 @@ async function streamMergedVideo(
 	type: VideoType,
 ): Promise<Response> {
 	console.log('Streaming merged video live:', id);
-
 	const videoStream = spawn(
 		'yt-dlp',
 		`-f bestvideo -o - https://www.bilibili.com${type}/${id}`.split(' '),
@@ -39,7 +38,7 @@ async function streamMergedVideo(
 	// 合併流
 	const ffmpeg = spawn(
 		`ffmpeg`,
-		`-i pipe:0 -thread_queue_size 1024 -i pipe:3 -thread_queue_size 1024 -c:v copy -c:a aac -movflags frag_keyframe+empty_moov -f mp4 pipe:1`.split(
+		`-thread_queue_size 1024 -i pipe:0 -thread_queue_size 1024 -i pipe:3 -c:v copy -c:a copy -movflags frag_keyframe+empty_moov -f mp4 pipe:1`.split(
 			' ',
 		),
 		{
@@ -47,8 +46,6 @@ async function streamMergedVideo(
 			shell: true,
 		},
 	);
-
-	ffmpeg.unref();
 	videoStream.on('error', (err) => {
 		console.error('videoStream error', err);
 	});
@@ -60,8 +57,23 @@ async function streamMergedVideo(
 	});
 	// 將影片和音訊流寫入 ffmpeg
 
-	const res = new Response(ffmpeg.stdio[1] as unknown as ReadableStream);
-	Bun.write(`./download/${id}/video.mp4`, res);
+	const writeStream = createWriteStream(`./download/${id}/video.mp4`)
+		.on('error', (err) => {
+			console.error('writeStream error', err);
+		})
+		.on('close', () => {
+			console.log('writeStream closed');
+		});
+
+	(ffmpeg.stdio[1] as Readable).on('data', (chunk) => {
+		writeStream.write(chunk);
+	});
+	(ffmpeg.stdio[1] as Readable).on('end', () => {
+		writeStream.end();
+	});
+	videoStream.on('exit', (code) => {
+		console.log('videoStream exit', code);
+	});
 
 	// 返回合併流
 	return new Response(
@@ -128,11 +140,10 @@ async function downloadVideo(id: string, type: VideoType = VideoType.Video) {
 			.replaceAll('@@author@@', video_info.uploader)
 			.replaceAll('@@keywords@@', video_info.tags.join(', ')),
 		{
-			status: 206,
+			status: 200,
 			headers: {
 				'Content-Type': 'text/html',
 				'Cache-Control': 'no-cache,max-age=0',
-				'Content-Range': 'bytes 0-',
 			},
 		},
 	);
@@ -145,28 +156,39 @@ Bun.serve({
 	key: readFileSync('./key.pem'),
 	cert: readFileSync('./cert.pem'),
 	*/
+	idleTimeout: 1000 * 60 * 60,
 	async fetch(request, server) {
 		const url = new URL(request.url);
 		console.log(url.pathname);
 
 		if (url.pathname.startsWith('/video_data')) {
+			const range = request.headers.get('Range');
+			const start = range
+				? parseInt(range.replace('bytes=', '').split('-')[0])
+				: 0;
 			const id = url.pathname.split('/')[2];
-			if (!(await exists(`./download/${id}`))) {
-				mkdir(`./download/${id}`);
-			}
 			const file = `./download/${id}/video.mp4`;
-			if (!id || /\/\S{12}\//.test(id)) {
-				return new Response('404 Not Found PABAO', { status: 404 });
-			}
+			const fileSize = Bun.file(file).size;
 			if (await exists(file)) {
-				console.log('File exists:', file);
-				return new Response(Bun.file(file), {
-					status: 200,
-					headers: {
-						'Content-Type': 'video/mp4',
-						'Cache-Control': 'no-cache,max-age=0',
+				console.log('Send video:', id, 'with range:', range);
+				return new Response(
+					range ? Bun.file(file).slice(start) : Bun.file(file).stream(),
+					{
+						status: range ? 206 : 200,
+						headers: {
+							'Cache-Control': 'no-cache,max-age=0',
+							'Content-Type': 'video/mp4',
+							...(range
+								? {
+										'Content-Range': `bytes ${start}-${
+											fileSize - 1
+										}/${fileSize}`,
+										'Content-Length': (start - fileSize + 1).toString(),
+								  }
+								: {}),
+						},
 					},
-				});
+				);
 			}
 			console.log('Streaming merged video:', id);
 			return await streamMergedVideo(id, VideoType.Video);

@@ -1,7 +1,6 @@
 import { readFile } from 'fs/promises';
 import YTDlpWrap from 'yt-dlp-wrap';
 import { mkdir, exists } from 'fs/promises';
-import { readFileSync } from 'fs';
 
 if (!(await exists('./download'))) {
 	await mkdir('./download');
@@ -70,14 +69,21 @@ Bun.serve({
 		console.log(url.pathname);
 
 		if (url.pathname.startsWith('/video_data')) {
-			const id = url.pathname.split('/').pop();
+			const range = request.headers.get('Range');
+			const start = range
+				? parseInt(range.replace('bytes=', '').split('-')[0])
+				: 0;
+			const id = url.pathname.split('/')[2];
 			const file = `./download/${id}/video.mp4`;
+			const fileSize = Bun.file(file).size;
 			if (await exists(file)) {
-				return new Response(Bun.file(file), {
-					status: 200,
+				return new Response(Bun.file(file).slice(start), {
+					status: 206,
 					headers: {
-						'Content-Type': 'video/mp4',
 						'Cache-Control': 'no-cache,max-age=0',
+						'Content-Type': 'video/mp4',
+						'Content-Range': `bytes ${start}-${fileSize - 1}/${fileSize}`,
+						'Content-Length': (start - fileSize + 1).toString(),
 					},
 				});
 			}

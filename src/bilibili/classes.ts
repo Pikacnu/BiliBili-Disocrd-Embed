@@ -123,62 +123,25 @@ export class BilibiliVideo {
 		if (!reader) {
 			throw new Error('Failed to get reader from video stream');
 		}
-
-		const { readable, writable } = new TransformStream();
-		const writer = writable.getWriter();
-
-		let totalLength = 0;
-		const chunks: Uint8Array[] = [];
-
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			if (value) {
-				totalLength += value.length;
-				chunks.push(value);
-			}
-		}
-
-		const halfLength = Math.ceil(totalLength / 2);
-		let currentLength = 0;
-		const firstPart: Uint8Array[] = [];
-		const secondPart: Uint8Array[] = [];
-
-		for (const chunk of chunks) {
-			if (currentLength + chunk.length <= halfLength) {
-				firstPart.push(chunk);
-				currentLength += chunk.length;
-			} else {
-				const remaining = halfLength - currentLength;
-				if (remaining > 0) {
-					firstPart.push(chunk.slice(0, remaining));
-					secondPart.push(chunk.slice(remaining));
-				} else {
-					secondPart.push(chunk);
-				}
-				currentLength += chunk.length;
-			}
-		}
-
-		const firstStream = new ReadableStream({
+		const stream = new ReadableStream<Uint8Array>({
 			start(controller) {
-				for (const chunk of firstPart) {
-					controller.enqueue(chunk);
+				function push() {
+					reader?.read().then(({ done, value }) => {
+						if (done) {
+							controller.close();
+							return;
+						}
+						controller.enqueue(value);
+						push();
+					});
 				}
-				controller.close();
+				push();
+			},
+			cancel() {
+				reader?.cancel();
 			},
 		});
-
-		const secondStream = new ReadableStream({
-			start(controller) {
-				for (const chunk of secondPart) {
-					controller.enqueue(chunk);
-				}
-				controller.close();
-			},
-		});
-
-		return [firstStream, secondStream, halfLength];
+		return stream;
 	}
 
 	async getVideoResponse() {

@@ -8,6 +8,10 @@
   "peerDependencies": {
     "typescript": "^5.0.0"
   },
+  "scripts": {
+    "setup-cookie":"bun ./src/cookie.ts",
+    "refresh-cookie":"bun ./src/test.ts"
+  },
   "dependencies": {
     "@types/qrcode-terminal": "^0.12.2",
     "@types/stream-write": "^2.0.3",

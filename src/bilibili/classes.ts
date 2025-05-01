@@ -13,7 +13,7 @@ import { $ } from 'bun';
 import { writeFile } from 'fs/promises';
 
 const API_URL = 'https://api.bilibili.com';
-const ProxyLink = process.env.PROXY_LINK!;
+const ProxyLink = process.env.PROXYLINK!;
 
 const SliceSize = 1024 * 1024 * 10;
 

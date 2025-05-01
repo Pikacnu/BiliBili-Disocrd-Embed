@@ -13,7 +13,6 @@ import { $ } from 'bun';
 import { writeFile } from 'fs/promises';
 
 const API_URL = 'https://api.bilibili.com';
-const ProxyLink = process.env.PROXY_LINK!;
 
 const SliceSize = 1024 * 1024 * 10;
 
@@ -316,13 +315,16 @@ async function getDashPart(
 	let url = urlList.shift()!;
 	while (true) {
 		try {
-			const response = await fetch(ProxyLink, {
-				headers: {
-					...headers,
-					Range: `bytes=${data.start}-${data.end}`,
-					'x-url': url,
+			const response = await fetch(
+				`https://cloudflare-worker-proxy.pikacnu.workers.dev`,
+				{
+					headers: {
+						...headers,
+						Range: `bytes=${data.start}-${data.end}`,
+						'x-url': url,
+					},
 				},
-			});
+			);
 			if (!response.ok) {
 				throw new Error(
 					`Error downloading slice ${data.index + 1}: ${response.status}`,

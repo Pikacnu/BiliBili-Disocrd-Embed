@@ -45,7 +45,7 @@ interface QRCodePollResponse {
  * 用戶認證信息
  */
 export interface AuthInfo {
-	cookie: Record<string, string>;
+	cookies: string;
 	refresh_token: string;
 	timestamp: number;
 }
@@ -110,20 +110,13 @@ export class BilibiliQRLogin {
 				(await response.json()) as BilibiliResponse<QRCodePollResponse>;
 			if (data.code !== 0) throw new Error(`API error! ${data.message}`);
 			const code = data.data.code as QRCodeStatus;
-			if (code !== QRCodeStatus.CONFIRMED) {
-				return code;
-			}
 			const refresh_token = data.data.refresh_token;
-			const cookieString = response.headers.get('set-cookie') || '';
-			const cookies = cookieString
-				.split(',')
-				.filter((s) => s.includes('='))
-				.map((s) => s.split(';')[0].trim().split('='));
-			const cookie = Object.fromEntries(cookies);
+			const cookie = response.headers.get('set-cookie') || '';
+			const cookies = cookie.split(';')[0].split('=').slice(1).join('=');
 			// 儲存認證信息（如果已確認）
-			if (code === QRCodeStatus.CONFIRMED && cookie) {
+			if (code === QRCodeStatus.CONFIRMED && cookies) {
 				this.authInfo = {
-					cookie: cookie,
+					cookies,
 					refresh_token,
 					timestamp: Date.now(),
 				};
@@ -156,7 +149,6 @@ export class BilibiliQRLogin {
 			try {
 				const status = await this.checkQRCodeStatus();
 				if (this.prevStatus !== status) {
-					this.prevStatus = status;
 					callback(status);
 				}
 

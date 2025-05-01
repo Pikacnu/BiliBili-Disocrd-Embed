@@ -7,7 +7,7 @@ let fileSize: Map<string, number> = new Map();
 let videoInfoCache: Map<string, BilibiliVideoInfo> = new Map();
 
 const sessionData = await Bun.file('./cookies/bilibili.json').json();
-const session = sessionData?.cookies;
+const session = sessionData?.cookie.SESSDATA;
 
 Bun.serve({
 	port: 3000,

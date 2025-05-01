@@ -607,3 +607,22 @@ export interface BilibiliLoginKey {
 	/* RSA 公鑰 */
 	key: string;
 }
+
+export type BilibiliResponse<T> = {
+	code: number;
+	message: string;
+	data: T;
+};
+
+export type CookieInfoResponse = {
+	/* 是否應該刷新cookie */
+	refresh: boolean;
+	/*timestamp */
+	timestamp: number;
+};
+
+export type RefreshCookieResponse = {
+	status: number;
+	message: string;
+	refresh_token: string;
+};

@@ -295,7 +295,7 @@ Bun.serve({
 		};
 		const result = await process(request);
 		result.headers.set('Access-Control-Allow-Origin', '*');
-		result.headers.set('Cache-Control', 'no-cache, max-age=0');
+		result.headers.set('Cache-Control', 'public, max-age=15552000');
 		return result;
 	},
 });

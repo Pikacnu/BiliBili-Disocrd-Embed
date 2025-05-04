@@ -41,6 +41,25 @@ export function isValidBVID(bvid: string): boolean {
 	return bvidRegex.test(bvid);
 }
 
+export function isValidAVID(avid: string): boolean {
+	// AVID 格式: AV 開頭，後面跟著 1 到 10 個數字
+	const avidRegex = /^AV\d{1,15}$/;
+	return avidRegex.test(avid);
+}
+
+export function isVaildBilibiliID(id: string): boolean {
+	return [isValidAVID, isValidBVID].some((fn) => fn(id));
+}
+export function isDiscordBot(header: Headers) {
+	if (
+		header.get('User-Agent') ===
+		'Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)'
+	) {
+		return true;
+	}
+	return false;
+}
+
 const publicKey = await crypto.subtle.importKey(
 	'jwk',
 	{

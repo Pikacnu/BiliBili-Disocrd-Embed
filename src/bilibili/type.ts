@@ -558,7 +558,7 @@ export interface DashAudioItem {
 	/** 音訊編碼ID */
 	codecid: number;
 	/** 音訊編碼名稱 */
-	codecs: string;
+	codecs: string[] | string;
 	/** 音訊品質 */
 	quality: AudioQuality;
 }
@@ -626,3 +626,12 @@ export type RefreshCookieResponse = {
 	message: string;
 	refresh_token: string;
 };
+
+export enum BilibiliVideoIdType {
+	bvid,
+	avid,
+	epid,
+	season,
+	episode,
+	unknown,
+}

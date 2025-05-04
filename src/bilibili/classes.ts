@@ -8,14 +8,18 @@ import {
 	AudioQuality,
 	type DashVideoItem,
 	type DashAudioItem,
+	BilibiliVideoIdType,
+	isValidBVID,
+	isValidAVID,
 } from './';
 import { $ } from 'bun';
 import { writeFile } from 'fs/promises';
 
 const API_URL = 'https://api.bilibili.com';
 const ProxyLink = process.env.PROXYLINK!;
+const ProxyApiKey = process.env.PROXY_APIKEY!;
 
-const SliceSize = 1024 * 1024 * 10;
+const SliceSize = 1024 * 1024 * 8;
 
 const headers = {
 	'User-Agent':
@@ -29,21 +33,33 @@ const headers = {
 
 export class BilibiliVideo {
 	private bvid: string;
+	private idType: BilibiliVideoIdType = BilibiliVideoIdType.bvid;
 	private videoInfo: BilibiliVideoInfo | null = null;
 	private videoPlayInfo: VideoPlayInfo | null = null;
 	private headers: HeadersInit = headers;
+	private cfTest: boolean = false;
 
-	constructor(url: string, session?: string) {
-		this.bvid = this.getBVIDFromURL(url);
+	constructor(url: string, session?: string, cfTest = false) {
+		this.bvid = this.getIDFromURL(url);
+		this.idType = BilibiliVideo.getIdType(this.bvid);
 		if (session && session.length > 0) {
 			this.headers = new Headers({
 				...this.headers,
 				Cookie: `SESSDATA=${session};`,
 			});
 		}
+		this.cfTest = cfTest;
 	}
 
-	getBVIDFromURL(url: string): string {
+	static getIdType(id: string) {
+		if (isValidBVID(id)) return BilibiliVideoIdType.bvid;
+		if (isValidAVID(id)) return BilibiliVideoIdType.avid;
+		if (id.startsWith('ss')) return BilibiliVideoIdType.season;
+		if (id.startsWith('ep')) return BilibiliVideoIdType.episode;
+		return BilibiliVideoIdType.unknown;
+	}
+
+	getIDFromURL(url: string): string {
 		const regex = /\/(video|bangumi)\/([^/?#]+)/;
 		const match = url.match(regex);
 		if (match) {
@@ -54,7 +70,10 @@ export class BilibiliVideo {
 	}
 
 	async getVideoInfo(): Promise<BilibiliVideoInfo> {
-		const url = `${API_URL}/x/web-interface/view?bvid=${this.bvid}`;
+		const url =
+			this.idType === BilibiliVideoIdType.bvid
+				? `${API_URL}/x/web-interface/view?bvid=${this.bvid}`
+				: `${API_URL}/x/web-interface/view?aid=${this.bvid}`;
 		const data = await this.fetch(url);
 		this.videoInfo = data;
 		return data;
@@ -74,26 +93,29 @@ export class BilibiliVideo {
 			case [0, 200].includes(data.code):
 				return data.data;
 			case code === 400:
-				throw new Error(`Bad Request: ${data.message}`);
+				throw new Error(`Bad Request: ${data.message} ${url}`);
 			case code === 404:
-				throw new Error(`Not Found: ${data.message}`);
+				throw new Error(`Not Found: ${data.message} ${url}`);
 			case [352, 412].includes(code):
-				throw new Error(`Be Rick Control: ${data.message}`);
+				throw new Error(`Be Rick Control: ${data.message} ${url}`);
 			case [10403, 688, 6002003].includes(code):
-				throw new Error(`Area Limit: ${data.message}`);
+				throw new Error(`Area Limit: ${data.message} ${url}`);
 			default:
 				console.error(data);
 				throw new Error(`Unexpected error: ${data.message}`);
 		}
 	}
 
-	async getVideoPlayInfo(): Promise<VideoPlayInfo> {
-		const data = await this.fetch(
-			`${API_URL}/x/player/wbi/playurl?bvid=${this.bvid}&cid=${this.videoInfo?.cid}&fnver=0&fnval=4048&fourk=1`,
-			{
-				headers: this.headers,
-			},
-		);
+	async getVideoPlayInfo(platform = 'dash'): Promise<VideoPlayInfo> {
+		let url;
+		if (platform === 'dash') {
+			url = `${API_URL}/x/player/wbi/playurl?bvid=${this.bvid}&cid=${this.videoInfo?.cid}&fnver=0&fnval=4048&fourk=1`;
+		} else {
+			url = `${API_URL}/x/player/wbi/playurl?bvid=${this.bvid}&cid=${this.videoInfo?.cid}&platfrom=html5&qn=${VideoQuality._720P}&high_quality=1`;
+		}
+		const data = await this.fetch(url, {
+			headers: this.headers,
+		});
 		this.videoPlayInfo = data;
 		return data;
 	}
@@ -123,25 +145,32 @@ export class BilibiliVideo {
 		if (!reader) {
 			throw new Error('Failed to get reader from video stream');
 		}
-		const stream = new ReadableStream<Uint8Array>({
-			start(controller) {
-				function push() {
-					reader?.read().then(({ done, value }) => {
-						if (done) {
-							controller.close();
-							return;
-						}
-						controller.enqueue(value);
-						push();
-					});
-				}
-				push();
-			},
-			cancel() {
-				reader?.cancel();
-			},
-		});
-		return stream;
+		try {
+			const stream = new ReadableStream<Uint8Array>({
+				start(controller) {
+					function push() {
+						reader?.read().then(({ done, value }) => {
+							if (done) {
+								try {
+									controller.close();
+								} catch (e) {}
+								return;
+							}
+							controller.enqueue(value);
+							push();
+						});
+					}
+					push();
+				},
+				cancel() {
+					reader?.cancel();
+				},
+			});
+			return stream;
+		} catch (error) {
+			console.error('Error creating stream:', error);
+			throw new Error('Failed to create stream from video response');
+		}
 	}
 
 	async getVideoResponse() {
@@ -171,7 +200,12 @@ export class BilibiliVideo {
 			);
 		}
 		console.time('Preparing video...');
-		if (await exists(`${path}/${this.bvid}/${this.bvid}.mp4`)) {
+
+		if (
+			(await exists(`${path}/${this.bvid}/${this.bvid}.mp4`)) &&
+			!this.cfTest
+		) {
+			console.log('Video file already exists. Skipping download.');
 			return [
 				`${path}/${this.bvid}/${this.bvid}.mp4`,
 				Bun.file(`${path}/${this.bvid}/${this.bvid}.mp4`).size,
@@ -185,7 +219,9 @@ export class BilibiliVideo {
 		if (!dash) {
 			throw new Error('DASH data not available');
 		}
-		const bestVideo = findBestQuality(dash.video);
+		const bestVideo = findBestQuality(
+			dash.video.filter((item) => item.codecs.includes('avc')),
+		);
 		const bestAudio = findBestQuality(dash.audio);
 		console.log(
 			`Video Quality: ${VideoQualityText[bestVideo.id as VideoQuality]}`,
@@ -193,6 +229,22 @@ export class BilibiliVideo {
 		console.log(
 			`Audio Quality: ${AudioQualityText[bestAudio.id as AudioQuality]}`,
 		);
+
+		if (this.cfTest) {
+			console.log('Using proxy for video and audio...');
+			fetch(ProxyLink, {
+				headers: {
+					'x-api-key': ProxyApiKey,
+					'x-video-links': [bestVideo.base_url, ...bestVideo.backup_url].join(
+						',',
+					),
+					'x-audio-links': [bestAudio.base_url, ...bestAudio.backup_url].join(
+						',',
+					),
+				},
+			});
+			return [`${ProxyLink}video_data/${this.bvid}`, 0];
+		}
 
 		const [videos, videoSliceCount] = await sourceProcessing.call(
 			this,
@@ -208,49 +260,76 @@ export class BilibiliVideo {
 			'audio',
 		);
 		console.timeEnd('Preparing video...');
-		console.time('Downloading slices...');
+		console.time('Downloaded slices');
 		await Promise.allSettled([...videos, ...audios]);
-		console.timeEnd('Downloading slices...');
-		console.log('All slices downloaded.');
+		console.timeEnd('Downloaded slices');
 
 		console.log('Merging video and audio...');
 		try {
-			await Promise.allSettled([
-				new Promise<void>(async (r) => {
-					for (const index of Array(videoSliceCount).keys()) {
-						await writeFile(
-							`${path}/video.mp4`,
-							new Uint8Array(
-								await Bun.file(
-									`${path}/${this.bvid}_video_${index}.m4s`,
-								).arrayBuffer(),
-							),
-							{
-								flag: 'a',
-							},
-						);
-					}
-					r();
-				}),
-				new Promise<void>(async (r) => {
-					for (const index of Array(audioSliceCount).keys()) {
-						await writeFile(
-							`${path}/audio.mp4`,
-							new Uint8Array(
-								await Bun.file(
-									`${path}/${this.bvid}_audio_${index}.m4s`,
-								).arrayBuffer(),
-							),
-							{
-								flag: 'a',
-							},
-						);
-					}
-					r();
-				}),
-			]);
+			const mergeArray = [];
 
-			await $`ffmpeg -i ${path}/video.mp4 -i ${path}/audio.mp4 -c copy ${path}/${this.bvid}.mp4`.quiet();
+			if (
+				!(await exists(`${path}/video.m4s`)) ||
+				Bun.file(`${path}/video.m4s`).size === 0
+			) {
+				mergeArray.push(
+					new Promise<void>(async (r) => {
+						for (const index of Array(videoSliceCount).keys()) {
+							await writeFile(
+								`${path}/video.m4s`,
+								new Uint8Array(
+									await Bun.file(
+										`${path}/${this.bvid}_video_${index}.m4s`,
+									).arrayBuffer(),
+								),
+								{
+									flag: 'a',
+								},
+							);
+						}
+						r();
+					}),
+				);
+			}
+			if (
+				!(await exists(`${path}/audio.m4s`)) ||
+				Bun.file(`${path}/audio.m4s`).size === 0
+			) {
+				mergeArray.push(
+					new Promise<void>(async (r) => {
+						for (const index of Array(audioSliceCount).keys()) {
+							await writeFile(
+								`${path}/audio.m4s`,
+								new Uint8Array(
+									await Bun.file(
+										`${path}/${this.bvid}_audio_${index}.m4s`,
+									).arrayBuffer(),
+								),
+								{
+									flag: 'a',
+								},
+							);
+						}
+						r();
+					}),
+				);
+			}
+
+			await Promise.allSettled(mergeArray);
+
+			if (
+				!(await exists(`${path}/video.m4s`)) ||
+				!(await exists(`${path}/audio.m4s`))
+			) {
+				throw new Error('Video or audio file is missing or corrupted.');
+			}
+
+			try {
+				await $`ffmpeg -y -i ${path}/video.m4s -i ${path}/audio.m4s -c:v copy -c:a copy ${path}/${this.bvid}.mp4`.quiet();
+			} catch (error) {
+				console.error('Error merging video and audio:', error);
+			}
+
 			return [
 				`${path}/${this.bvid}.mp4`,
 				Bun.file(`${path}/${this.bvid}.mp4`).size,
@@ -284,6 +363,7 @@ async function getDashPart(
 					...headers,
 					Range: `bytes=${data.start}-${data.end}`,
 					'x-url': url,
+					'x-api-key': ProxyApiKey,
 				},
 			});
 			if (!response.ok) {

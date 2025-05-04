@@ -1,4 +1,4 @@
-import { checkIsCookieExpired, refreshCookie } from './bilibili';
+import { refreshCookie } from './bilibili';
 
 const sessionData = await Bun.file('./cookies/bilibili.json').json();
 const result = await refreshCookie(

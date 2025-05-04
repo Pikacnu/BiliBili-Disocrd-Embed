@@ -1,3 +1,4 @@
+import { isValidBVID } from './bilibili';
 import { BilibiliVideo } from './bilibili/classes';
 
 Bun.serve({
@@ -7,6 +8,14 @@ Bun.serve({
 		const path = url.pathname.split('/');
 		console.log(path);
 		const bvid = path[1];
+		if (!isValidBVID(bvid)) {
+			return new Response('Invalid BVID', {
+				status: 400,
+				headers: {
+					'Content-Type': 'text/plain',
+				},
+			});
+		}
 		try {
 			console.log(`Fetching video with BVID: ${bvid}`);
 			// Check if the BVID is valid
@@ -20,7 +29,7 @@ Bun.serve({
 			}
 			const video = new BilibiliVideo(`https://www.bilibili.com/video/${bvid}`);
 			await video.getVideoInfo();
-			await video.getVideoPlayInfo();
+			await video.getVideoPlayInfo('html5');
 			const body = await video.getVideoStream();
 			if (!body) {
 				return new Response('Error', {

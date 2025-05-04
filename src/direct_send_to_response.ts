@@ -1,6 +1,9 @@
 import { isValidBVID } from './bilibili';
 import { BilibiliVideo } from './bilibili/classes';
 
+const sessionData = await Bun.file('./cookies/bilibili.json').json();
+const session = sessionData?.cookie.SESSDATA;
+
 Bun.serve({
 	port: 3000,
 	async fetch(request) {
@@ -27,7 +30,10 @@ Bun.serve({
 					},
 				});
 			}
-			const video = new BilibiliVideo(`https://www.bilibili.com/video/${bvid}`);
+			const video = new BilibiliVideo(
+				`https://www.bilibili.com/video/${bvid}`,
+				session,
+			);
 			await video.getVideoInfo();
 			await video.getVideoPlayInfo('html5');
 			const body = await video.getVideoStream();

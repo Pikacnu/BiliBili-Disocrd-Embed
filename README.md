@@ -37,12 +37,14 @@ Modify the `cfTest` setting in `./src/index.ts`:
 - Set to `false` for local caching of video downloads before transmission.
 - Set to `true` to use Cloudflare Worker as the video transmission medium.
 
-Recommended to use with [bilibili-downloader-cloudflare-worker](https://github.com/Pikacnu/bilibili-downloder-cloudflare-worker/tree/master).
+Recommended to use with [bilibili-downloader-cloudflare-worker](https://github.com/Pikacnu/bilibili-downloder-cloudflare-worker/tree/master).  
+**Note**: This method is recommended for short videos. Long videos may not work due to unknown issues.
 
 ---
 
 ### Method 4: Direct Response Transmission
 Use the `./src/direct_send_to_response` script to directly transmit the `durl` as a response to the requester.
+**Note**: This method is recommended for short videos.
 
 ---
 

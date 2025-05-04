@@ -1,30 +1,53 @@
 # BiliBili Video Embed
 
-To install dependencies:
+## Installation
+
+To install dependencies, run:
 
 ```bash
 bun install
 ```
 
-To run:
+---
+
+## Execution Methods
+
+### Method 1: Run the Main Program (Not Recommended)
+To execute the program, use:
 
 ```bash
 bun run index.ts
 ```
 
-# To Try this
+---
 
-Change BiliBili Video Link from
-www.bilibili.com
-to
-www.vxbilibili.com (my friends domain)
+### Method 2: Linux-Specific Execution (Not Recommended)
+For Linux environments (tested on Ubuntu server), use:
 
-# Info
-In usecase the longer video have less possible generate embed by one time
-If it doesn't work just change parms(This website don't take any parms) let discord reload embed
+```bash
+bun run linux.ts
+```
 
-# Important
-`index.ts` can be run in most envrionment
+**Note**: This method supports streaming but is unstable and contains bugs. Avoid using it unless necessary.
 
-`linux.ts` only can be run on linux(I test it on ubuntu server) and not statble but support stream
-(`linux.ts` shouldn't be used because it still have many bugs and I don't know how to fix)
+---
+
+### Method 3: Cloudflare Worker Integration
+Modify the `cfTest` setting in `./src/index.ts`:
+- Set to `false` for local caching of video downloads before transmission.
+- Set to `true` to use Cloudflare Worker as the video transmission medium.
+
+Recommended to use with [bilibili-downloader-cloudflare-worker](https://github.com/Pikacnu/bilibili-downloder-cloudflare-worker/tree/master).
+
+---
+
+### Method 4: Direct Response Transmission
+Use the `./src/direct_send_to_response` script to directly transmit the `durl` as a response to the requester.
+
+---
+
+### Method 5: High-Quality Video Setup
+1. Run `./src/cookie.ts` to generate a QR Code and save the Cookie to the project directory.  
+  (Open the link or scan the QR Code with your phone to activate it.)
+2. Run `./src/refresh_cookie.ts` to refresh the saved Cookie.  
+  **Note**: Automatic cookie refresh during runtime is not implemented, so manual refresh is required.

@@ -11,6 +11,7 @@ import {
 	BilibiliVideoIdType,
 	isValidBVID,
 	isValidAVID,
+	getVideoInfo,
 } from './';
 import { $ } from 'bun';
 import { writeFile } from 'fs/promises';
@@ -111,7 +112,11 @@ export class BilibiliVideo {
 		if (platform === 'dash') {
 			url = `${API_URL}/x/player/wbi/playurl?bvid=${this.bvid}&cid=${this.videoInfo?.cid}&fnver=0&fnval=4048&fourk=1`;
 		} else {
-			url = `${API_URL}/x/player/wbi/playurl?bvid=${this.bvid}&cid=${this.videoInfo?.cid}&platfrom=html5&qn=${VideoQuality._720P}&high_quality=1`;
+			url = `${API_URL}/x/player/wbi/playurl?bvid=${this.bvid}&cid=${
+				this.videoInfo?.cid
+			}&platfrom=html5&qn=${VideoQuality._720P}&high_quality=${
+				this.cfTest ? 1 : 0
+			}`;
 		}
 		const data = await this.fetch(url, {
 			headers: this.headers,
@@ -230,22 +235,6 @@ export class BilibiliVideo {
 			`Audio Quality: ${AudioQualityText[bestAudio.id as AudioQuality]}`,
 		);
 
-		if (this.cfTest) {
-			console.log('Using proxy for video and audio...');
-			fetch(ProxyLink, {
-				headers: {
-					'x-api-key': ProxyApiKey,
-					'x-video-links': [bestVideo.base_url, ...bestVideo.backup_url].join(
-						',',
-					),
-					'x-audio-links': [bestAudio.base_url, ...bestAudio.backup_url].join(
-						',',
-					),
-				},
-			});
-			return [`${ProxyLink}video_data/${this.bvid}`, 0];
-		}
-
 		const [videos, videoSliceCount] = await sourceProcessing.call(
 			this,
 			bestVideo,
@@ -341,6 +330,22 @@ export class BilibiliVideo {
 	}
 	getBVID() {
 		return this.bvid;
+	}
+
+	async useCloudflareWorker() {
+		if (!this.cfTest) throw new Error('Cloudflare test is not enabled.');
+
+		const VideoPlayInfo = await this.getVideoPlayInfo('html5');
+		const urlDatas = VideoPlayInfo.durl[0];
+		const resp = await fetch(ProxyLink, {
+			headers: {
+				'x-api-key': ProxyApiKey,
+				'x-video-links': [urlDatas.url, ...urlDatas.backup_url].join('|'),
+				'x-bvid': this.bvid,
+			},
+		});
+		console.log('Proxy response:', resp.status, await resp.text());
+		return `${ProxyLink}video_data/${this.bvid}`;
 	}
 }
 

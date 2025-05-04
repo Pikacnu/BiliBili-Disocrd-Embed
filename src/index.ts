@@ -1,3 +1,4 @@
+import { existsSync } from 'fs';
 import type { AudioQuality, BilibiliVideoInfo, VideoQuality } from './bilibili';
 import { isDiscordBot, isValidBVID } from './bilibili';
 import { BilibiliVideo } from './bilibili/classes';
@@ -15,9 +16,9 @@ const sessionData = await Bun.file('./cookies/bilibili.json').json();
 const session = sessionData?.cookie.SESSDATA;
 
 const currentURL = process.env.CURRENTURL || 'https://your-domain.com';
-const chunkSize = 1024 * 1024 * 10; // 20MB
+//const chunkSize = 1024 * 1024 * 10; // 20MB
 
-const cfTest = false; // Set to true to use Cloudflare test mode
+const cfTest = true; // Set to true to use Cloudflare test mode
 
 Bun.serve({
 	port: 3000,
@@ -39,7 +40,7 @@ Bun.serve({
 
 				const counter = discordVideoDownloadCounter.get(bvid) || 0;
 				if (isBot) {
-					if (counter >= 4) {
+					if (counter >= 2) {
 						discordVideoDownloadCounter.set(bvid, 0);
 					} else {
 						discordVideoDownloadCounter.set(bvid, counter + 1);
@@ -59,13 +60,12 @@ Bun.serve({
 				let range = request.headers.get('Range');
 				if (!range) {
 					console.log(`No range header, sending full file`);
-					return new Response(Bun.file(filepath).stream(), {
+					return new Response(await Bun.file(filepath).stream(), {
 						status: 200,
 						headers: {
 							'Content-Type': 'video/mp4',
 							'Accept-Ranges': 'bytes',
 							'Content-Length': (fileSize.get(bvid) || 0).toString(),
-							'Content-Disposition': `inline; filename="${bvid}.mp4"`,
 						},
 					});
 				}
@@ -76,9 +76,9 @@ Bun.serve({
 					//const chunk = chunkSize;
 					console.log(`Chunk size: ${chunk}`);
 					let start = counter * chunk;
-					let end = start + chunk - 1;
+					let end = start + chunk;
 					if (end > (fileSize.get(bvid) || 0)) {
-						end = (fileSize.get(bvid) || 0) - 1;
+						end = fileSize.get(bvid) || 0;
 					}
 					if (start > end) {
 						start = end;
@@ -103,18 +103,21 @@ Bun.serve({
 				if (isNaN(end)) end = fileSize.get(bvid) || 0;
 				console.log(`Range: ${start} - ${end}`);
 
-				return new Response(Bun.file(filepath).slice(start, end).stream(), {
-					status: 206,
-					headers: {
-						'Content-Type': 'video/mp4',
-						'Accept-Ranges': 'bytes',
-						'Content-Length': (end - start).toString(),
-						'Content-Disposition': `inline; filename="${bvid}.mp4"`,
-						'Content-Range': `bytes ${start}-${end}/${
-							(fileSize.get(bvid) || 0) - 1
-						}`,
+				return new Response(
+					await Bun.file(filepath).slice(start, end).arrayBuffer(),
+					{
+						status: 206,
+						headers: {
+							'Content-Type': 'video/mp4',
+							'Accept-Ranges': 'bytes',
+							'Content-Length': (end - start).toString(),
+							'Content-Disposition': `inline; filename="${bvid}.mp4"`,
+							'Content-Range': `bytes ${start}-${end - 1}/${
+								fileSize.get(bvid) || 0
+							}`,
+						},
 					},
-				});
+				);
 			}
 
 			if (path[1] === 'player') {
@@ -237,9 +240,8 @@ Bun.serve({
 							}
 						})();
 					} else {
-						const [link] = await video.getBestDASHVideoFile('./download');
+						const link = await video.useCloudflareWorker();
 						CFVideoLink = link;
-						console.log(link);
 					}
 
 					if (isBot) {
@@ -331,6 +333,12 @@ async function loadCache() {
 			fileSize.forEach((size, bvid) => {
 				if (size === 0) {
 					console.log(`File size for ${bvid} is 0, removing from cache`);
+					cache.delete(bvid);
+					fileSize.delete(bvid);
+					videoInfoCache.delete(bvid);
+				}
+				if (!existsSync(`./download/${bvid}/${bvid}.mp4`)) {
+					console.log(`File for ${bvid} does not exist, removing from cache`);
 					cache.delete(bvid);
 					fileSize.delete(bvid);
 					videoInfoCache.delete(bvid);

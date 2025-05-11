@@ -375,17 +375,17 @@ export class BilibiliVideo {
 			const mergeArray = [];
 
 			if (
-				!(await exists(`${path}/video.m4s`)) ||
-				Bun.file(`${path}/video.m4s`).size === 0
+				!(await exists(`${path}/video.mp4`)) ||
+				Bun.file(`${path}/video.mp4`).size === 0
 			) {
 				mergeArray.push(
 					new Promise<void>(async (r) => {
 						for (const index of Array(videoSliceCount).keys()) {
 							await writeFile(
-								`${path}/video.m4s`,
+								`${path}/video.mp4`,
 								new Uint8Array(
 									await Bun.file(
-										`${path}/${this.bvid}_video_${index}.m4s`,
+										`${path}/${this.bvid}_video_${index}.mp4`,
 									).arrayBuffer(),
 								),
 								{
@@ -400,14 +400,8 @@ export class BilibiliVideo {
 
 			await Promise.allSettled(mergeArray);
 
-			if (!(await exists(`${path}/video.m4s`))) {
+			if (!(await exists(`${path}/video.mp4`))) {
 				throw new Error('Video file is missing or corrupted.');
-			}
-
-			try {
-				await $`ffmpeg -y -i ${path}/video.m4s -c copy ${path}/${this.bvid}.mp4`.quiet();
-			} catch (error) {
-				console.error('Error merging video:', error);
 			}
 
 			return [

@@ -635,3 +635,8 @@ export enum BilibiliVideoIdType {
 	episode,
 	unknown,
 }
+
+export enum BilibiliPlatform {
+	html5 = 'html5',
+	dash = 'dash',
+}

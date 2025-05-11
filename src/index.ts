@@ -1,6 +1,6 @@
 import { existsSync } from 'fs';
 import type { AudioQuality, BilibiliVideoInfo, VideoQuality } from './bilibili';
-import { isDiscordBot, isValidBVID } from './bilibili';
+import { BilibiliPlatform, isDiscordBot, isValidBVID } from './bilibili';
 import { BilibiliVideo } from './bilibili/classes';
 import { exists } from 'fs/promises';
 
@@ -19,6 +19,9 @@ const currentURL = process.env.CURRENTURL || 'https://your-domain.com';
 //const chunkSize = 1024 * 1024 * 10; // 20MB
 
 const cfTest = true; // Set to true to use Cloudflare test mode
+
+const platformType: BilibiliPlatform =
+	(process.env.PLATFORM as BilibiliPlatform) || BilibiliPlatform.dash;
 
 Bun.serve({
 	port: 3000,
@@ -223,22 +226,43 @@ Bun.serve({
 
 					let CFVideoLink = '';
 					if (!cfTest) {
-						(async () => {
-							const [videoPath, videoSize] = await video.getBestDASHVideoFile(
-								'./download',
-							);
-							if (videoPath) {
-								cache.set(bvid, videoPath);
-								fileSize.set(bvid, videoSize);
-							} else {
-								return new Response('Error', {
-									status: 500,
-									headers: {
-										'Content-Type': 'text/plain',
-									},
-								});
-							}
-						})();
+						switch (platformType) {
+							case BilibiliPlatform.dash:
+								(async () => {
+									const [videoPath, videoSize] =
+										await video.getBestDASHVideoFile('./download');
+									if (videoPath) {
+										cache.set(bvid, videoPath);
+										fileSize.set(bvid, videoSize);
+									} else {
+										return new Response('Error', {
+											status: 500,
+											headers: {
+												'Content-Type': 'text/plain',
+											},
+										});
+									}
+								})();
+								break;
+							case BilibiliPlatform.html5:
+								(async () => {
+									const [videoPath, videoSize] = await video.getBestDurlFile(
+										'./download',
+									);
+									if (videoPath) {
+										cache.set(bvid, videoPath);
+										fileSize.set(bvid, videoSize);
+									} else {
+										return new Response('Error', {
+											status: 500,
+											headers: {
+												'Content-Type': 'text/plain',
+											},
+										});
+									}
+								})();
+								break;
+						}
 					} else {
 						const link = await video.useCloudflareWorker();
 						CFVideoLink = link;

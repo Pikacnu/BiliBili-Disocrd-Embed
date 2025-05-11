@@ -12,6 +12,8 @@ import {
 	isValidBVID,
 	isValidAVID,
 	getVideoInfo,
+	type VideoDownloadURL,
+	BilibiliPlatform,
 } from './';
 import { $ } from 'bun';
 import { writeFile } from 'fs/promises';
@@ -107,9 +109,11 @@ export class BilibiliVideo {
 		}
 	}
 
-	async getVideoPlayInfo(platform = 'dash'): Promise<VideoPlayInfo> {
+	async getVideoPlayInfo(
+		platform = BilibiliPlatform.dash,
+	): Promise<VideoPlayInfo> {
 		let url;
-		if (platform === 'dash') {
+		if (platform === BilibiliPlatform.dash) {
 			url = `${API_URL}/x/player/wbi/playurl?bvid=${this.bvid}&cid=${this.videoInfo?.cid}&fnver=0&fnval=4048&fourk=1`;
 		} else {
 			url = `${API_URL}/x/player/wbi/playurl?bvid=${this.bvid}&cid=${
@@ -328,6 +332,94 @@ export class BilibiliVideo {
 			return [`${path}/${this.bvid}.mp4`, 0];
 		}
 	}
+
+	async getBestDurlFile(path = './video'): Promise<[string, number]> {
+		if (!this.videoPlayInfo) {
+			throw new Error(
+				'Video play info not fetched. Call getVideoPlayInfo() first.',
+			);
+		}
+		console.time('Preparing video...');
+
+		if (
+			(await exists(`${path}/${this.bvid}/${this.bvid}.mp4`)) &&
+			!this.cfTest
+		) {
+			console.log('Video file already exists. Skipping download.');
+			return [
+				`${path}/${this.bvid}/${this.bvid}.mp4`,
+				Bun.file(`${path}/${this.bvid}/${this.bvid}.mp4`).size,
+			];
+		}
+
+		await mkdir(path + `/${this.bvid}`, { recursive: true });
+		path = path + `/${this.bvid}`;
+		const durl = this.videoPlayInfo.durl;
+		if (!durl) {
+			throw new Error('DURL data not available');
+		}
+		const bestVideo = durl[0];
+		const [video, videoSliceCount] = await sourceProcessing.call(
+			this,
+			bestVideo,
+			path,
+			'video',
+			BilibiliPlatform.html5,
+		);
+		console.timeEnd('Preparing video...');
+		console.time('Downloaded slices');
+		await Promise.allSettled(video);
+		console.timeEnd('Downloaded slices');
+		console.log('Merging video...');
+		try {
+			const mergeArray = [];
+
+			if (
+				!(await exists(`${path}/video.m4s`)) ||
+				Bun.file(`${path}/video.m4s`).size === 0
+			) {
+				mergeArray.push(
+					new Promise<void>(async (r) => {
+						for (const index of Array(videoSliceCount).keys()) {
+							await writeFile(
+								`${path}/video.m4s`,
+								new Uint8Array(
+									await Bun.file(
+										`${path}/${this.bvid}_video_${index}.m4s`,
+									).arrayBuffer(),
+								),
+								{
+									flag: 'a',
+								},
+							);
+						}
+						r();
+					}),
+				);
+			}
+
+			await Promise.allSettled(mergeArray);
+
+			if (!(await exists(`${path}/video.m4s`))) {
+				throw new Error('Video file is missing or corrupted.');
+			}
+
+			try {
+				await $`ffmpeg -y -i ${path}/video.m4s -c copy ${path}/${this.bvid}.mp4`.quiet();
+			} catch (error) {
+				console.error('Error merging video:', error);
+			}
+
+			return [
+				`${path}/${this.bvid}.mp4`,
+				Bun.file(`${path}/${this.bvid}.mp4`).size,
+			];
+		} catch (error) {
+			console.error('Error merging video:', error);
+			return [`${path}/${this.bvid}.mp4`, 0];
+		}
+	}
+
 	getBVID() {
 		return this.bvid;
 	}
@@ -335,7 +427,7 @@ export class BilibiliVideo {
 	async useCloudflareWorker() {
 		if (!this.cfTest) throw new Error('Cloudflare test is not enabled.');
 
-		const VideoPlayInfo = await this.getVideoPlayInfo('html5');
+		const VideoPlayInfo = await this.getVideoPlayInfo(BilibiliPlatform.html5);
 		const urlDatas = VideoPlayInfo.durl[0];
 		const resp = await fetch(ProxyLink, {
 			headers: {
@@ -395,6 +487,52 @@ async function getDashPart(
 	}
 }
 
+async function getDurlPart(
+	videoData: VideoDownloadURL,
+	data: {
+		path: string;
+		start: number;
+		end: number;
+		index: number;
+	},
+): Promise<ArrayBuffer> {
+	const urlList: string[] = [videoData.url, ...videoData.backup_url];
+	let retryCount = 3;
+	let url = urlList.shift()!;
+	while (true) {
+		try {
+			const response = await fetch(ProxyLink, {
+				headers: {
+					...headers,
+					Range: `bytes=${data.start}-${data.end}`,
+					'x-url': url,
+					'x-api-key': ProxyApiKey,
+				},
+			});
+			if (!response.ok) {
+				throw new Error(
+					`Error downloading slice ${data.index + 1}: ${response.status}`,
+				);
+			}
+			const buffer = await response.arrayBuffer();
+			Bun.write(data.path, buffer);
+			return buffer;
+		} catch (error) {
+			if (urlList.length > 0) {
+				url = urlList.shift()!;
+			} else {
+				retryCount--;
+				if (retryCount > 0) {
+					urlList.push(...[videoData.url, ...videoData.backup_url]);
+					url = urlList.shift()!;
+					continue;
+				}
+				throw new Error(`All URLs failed: ${error}`);
+			}
+		}
+	}
+}
+
 function findBestQuality(
 	qualityArray: DashAudioItem[] | DashVideoItem[],
 ): DashAudioItem | DashVideoItem {
@@ -402,18 +540,39 @@ function findBestQuality(
 	return sortedArray[sortedArray.length - 1];
 }
 
+const sourceTypeWithGetPartFunctions: Record<
+	BilibiliPlatform,
+	typeof getDashPart | typeof getDurlPart
+> = {
+	[BilibiliPlatform.dash]: getDashPart,
+	[BilibiliPlatform.html5]: getDurlPart,
+};
+
 async function sourceProcessing(
 	this: BilibiliVideo,
-	item: DashAudioItem | DashVideoItem,
+	item: DashAudioItem | DashVideoItem | VideoDownloadURL,
 	path: string,
 	type: string,
+	sourceType: BilibiliPlatform = BilibiliPlatform.dash,
 ) {
-	const sourceResponse = await fetch(item.base_url, {
-		headers: headers,
-	});
+	let sourceLength, sourceResponse;
+	switch (sourceType) {
+		case BilibiliPlatform.dash:
+			item = item as DashVideoItem | DashAudioItem;
+			sourceResponse = await fetch(item.base_url, {
+				headers: headers,
+			});
 
-	const sourceLength =
-		Number(sourceResponse.headers.get('Content-Length')) || 0;
+			sourceLength = Number(sourceResponse.headers.get('Content-Length')) || 0;
+			break;
+		case BilibiliPlatform.html5:
+			item = item as VideoDownloadURL;
+			sourceResponse = await fetch(item.url, {
+				headers: headers,
+			});
+			sourceLength = Number(sourceResponse.headers.get('Content-Length')) || 0;
+			break;
+	}
 	const sliceCount = Math.ceil(sourceLength / SliceSize);
 
 	const slices: Promise<ArrayBuffer | void>[] = Array(sliceCount)
@@ -427,7 +586,8 @@ async function sourceProcessing(
 				return;
 
 			try {
-				await getDashPart(item, {
+				//@ts-ignore
+				await sourceTypeWithGetPartFunctions[sourceType](item, {
 					path: currentFilePath,
 					start: start,
 					end: end,

@@ -17,12 +17,13 @@ import {
 } from './';
 import { $ } from 'bun';
 import { writeFile } from 'fs/promises';
-
-const API_URL = 'https://api.bilibili.com';
-const ProxyLink = process.env.PROXYLINK!;
-const ProxyApiKey = process.env.PROXY_APIKEY!;
-
-const SliceSize = 1024 * 1024 * 8;
+import {
+	API_URL,
+	ProxyLink,
+	ProxyApiKey,
+	useProxy,
+	SliceSize,
+} from '../config';
 
 const headers = {
 	'User-Agent':
@@ -220,7 +221,7 @@ export class BilibiliVideo {
 				Bun.file(`${path}/${this.bvid}/${this.bvid}.mp4`).size,
 			];
 		}
-
+		console.time('Processing Time');
 		await mkdir(path + `/${this.bvid}`, { recursive: true });
 		path = path + `/${this.bvid}`;
 
@@ -322,7 +323,7 @@ export class BilibiliVideo {
 			} catch (error) {
 				console.error('Error merging video and audio:', error);
 			}
-
+			console.timeEnd('Processing Time');
 			return [
 				`${path}/${this.bvid}.mp4`,
 				Bun.file(`${path}/${this.bvid}.mp4`).size,
@@ -385,7 +386,7 @@ export class BilibiliVideo {
 								`${path}/video.mp4`,
 								new Uint8Array(
 									await Bun.file(
-										`${path}/${this.bvid}_video_${index}.mp4`,
+										`${path}/${this.bvid}_video_${index}.m4s`,
 									).arrayBuffer(),
 								),
 								{
@@ -423,6 +424,9 @@ export class BilibiliVideo {
 
 		const VideoPlayInfo = await this.getVideoPlayInfo(BilibiliPlatform.html5);
 		const urlDatas = VideoPlayInfo.durl[0];
+		if (!useProxy || !ProxyLink || !ProxyApiKey) {
+			throw new Error('Proxy is not enabled.');
+		}
 		const resp = await fetch(ProxyLink, {
 			headers: {
 				'x-api-key': ProxyApiKey,
@@ -495,14 +499,24 @@ async function getDurlPart(
 	let url = urlList.shift()!;
 	while (true) {
 		try {
-			const response = await fetch(ProxyLink, {
-				headers: {
-					...headers,
-					Range: `bytes=${data.start}-${data.end}`,
-					'x-url': url,
-					'x-api-key': ProxyApiKey,
-				},
-			});
+			let response: Response;
+			if (useProxy) {
+				response = await fetch(ProxyLink, {
+					headers: {
+						...headers,
+						Range: `bytes=${data.start}-${data.end}`,
+						'x-url': url,
+						'x-api-key': ProxyApiKey,
+					},
+				});
+			} else {
+				response = await fetch(url, {
+					headers: {
+						...headers,
+						Range: `bytes=${data.start}-${data.end}`,
+					},
+				});
+			}
 			if (!response.ok) {
 				throw new Error(
 					`Error downloading slice ${data.index + 1}: ${response.status}`,
@@ -597,7 +611,7 @@ async function sourceProcessing(
 		});
 
 	await Bun.write(
-		`${path}/video_list.txt`,
+		`${path}/${type}_list.txt`,
 		Array(sliceCount)
 			.fill(0)
 			.map((_, index) => `file '${this.getBVID()}_video_${index}.m4s'`)

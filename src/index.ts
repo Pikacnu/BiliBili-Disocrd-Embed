@@ -1,8 +1,9 @@
 import { existsSync } from 'fs';
-import type { AudioQuality, BilibiliVideoInfo, VideoQuality } from './bilibili';
+import type { BilibiliVideoInfo } from './bilibili';
 import { BilibiliPlatform, isDiscordBot, isValidBVID } from './bilibili';
 import { BilibiliVideo } from './bilibili/classes';
 import { exists } from 'fs/promises';
+import { currentURL, cfTest, platformType, session } from './config';
 
 let cache: Map<string, string> = new Map();
 let fileSize: Map<string, number> = new Map();
@@ -11,17 +12,6 @@ let videoInfoCache: Map<string, BilibiliVideoInfo> = new Map();
 await loadCache();
 
 let discordVideoDownloadCounter: Map<string, number> = new Map();
-
-const sessionData = await Bun.file('./cookies/bilibili.json').json();
-const session = sessionData?.cookie.SESSDATA;
-
-const currentURL = process.env.CURRENTURL || 'https://your-domain.com';
-//const chunkSize = 1024 * 1024 * 10; // 20MB
-
-const cfTest = true; // Set to true to use Cloudflare test mode
-
-const platformType: BilibiliPlatform =
-	(process.env.PLATFORM as BilibiliPlatform) || BilibiliPlatform.dash;
 
 Bun.serve({
 	port: 3000,
@@ -221,7 +211,7 @@ Bun.serve({
 						cfTest,
 					);
 					const info = await video.getVideoInfo();
-					await video.getVideoPlayInfo();
+					await video.getVideoPlayInfo(platformType);
 					videoInfoCache.set(bvid, info);
 
 					let CFVideoLink = '';

@@ -383,7 +383,7 @@ export class BilibiliVideo {
 					new Promise<void>(async (r) => {
 						for (const index of Array(videoSliceCount).keys()) {
 							await writeFile(
-								`${path}/video.mp4`,
+								`${path}/${this.bvid}.mp4`,
 								new Uint8Array(
 									await Bun.file(
 										`${path}/${this.bvid}_video_${index}.m4s`,
@@ -401,7 +401,7 @@ export class BilibiliVideo {
 
 			await Promise.allSettled(mergeArray);
 
-			if (!(await exists(`${path}/video.mp4`))) {
+			if (!(await exists(`${path}/${this.bvid}.mp4`))) {
 				throw new Error('Video file is missing or corrupted.');
 			}
 

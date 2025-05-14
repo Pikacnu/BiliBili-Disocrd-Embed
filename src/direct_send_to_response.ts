@@ -1,4 +1,4 @@
-import { isValidBVID } from './bilibili';
+import { BilibiliPlatform, isValidBVID } from './bilibili';
 import { BilibiliVideo } from './bilibili/classes';
 
 const sessionData = await Bun.file('./cookies/bilibili.json').json();
@@ -35,7 +35,7 @@ Bun.serve({
 				session,
 			);
 			await video.getVideoInfo();
-			await video.getVideoPlayInfo('html5');
+			await video.getVideoPlayInfo(BilibiliPlatform.html5);
 			const body = await video.getVideoStream();
 			if (!body) {
 				return new Response('Error', {

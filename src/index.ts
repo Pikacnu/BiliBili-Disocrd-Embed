@@ -1,4 +1,4 @@
-import { existsSync } from 'fs';
+import { createReadStream, existsSync } from 'fs';
 import type { BilibiliVideoInfo } from './bilibili';
 import { BilibiliPlatform, isDiscordBot, isValidBVID } from './bilibili';
 import { BilibiliVideo } from './bilibili/classes';
@@ -53,7 +53,22 @@ Bun.serve({
 				let range = request.headers.get('Range');
 				if (!range) {
 					console.log(`No range header, sending full file`);
-					return new Response(await Bun.file(filepath).stream(), {
+					const file = createReadStream(filepath);
+					const readableStream = new ReadableStream({
+						start(controller) {
+							file.on('data', (chunk) => {
+								controller.enqueue(chunk);
+							});
+							file.on('end', () => {
+								controller.close();
+							});
+							file.on('error', (err) => {
+								console.error(err);
+								controller.error(err);
+							});
+						},
+					});
+					return new Response(readableStream, {
 						status: 200,
 						headers: {
 							'Content-Type': 'video/mp4',
